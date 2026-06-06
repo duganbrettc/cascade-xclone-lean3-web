@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XClone – User Profile</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <nav id="app-nav">
+    <span class="nav-brand">XClone</span>
+    <a href="/">Home</a>
+    <a href="/post">Post</a>
+    <a href="/profile">Profile</a>
+    <a href="/users">Users</a>
+    <button id="logout-btn" onclick="doLogout()">Logout</button>
+  </nav>
+
+  <main>
+    <section id="user-header">
+      <div class="loading">Loading profile…</div>
+    </section>
+    <div id="user-posts">
+      <div class="loading">Loading posts…</div>
+    </div>
+  </main>
+
+  <script>
+    (function () {
+      var token = localStorage.getItem('token') || localStorage.getItem('session_token');
+
+      function doLogout() {
+        localStorage.removeItem('token');
+        localStorage.removeItem('session_token');
+        window.location.replace('/login');
+      }
+      window.doLogout = doLogout;
+
+      if (!token) {
+        document.getElementById('logout-btn').style.display = 'none';
+      }
+
+      function escapeHtml(str) {
+        return String(str || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      var pathParts = window.location.pathname.split('/');
+      var targetUsername = decodeURIComponent(pathParts[pathParts.length - 1] || pathParts[pathParts.length - 2] || '');
+
+      var isFollowing = false;
+
+      function doToggleFollow(btn) {
+        var method = isFollowing ? 'DELETE' : 'POST';
+        btn.disabled = true;
+
+        fetch('/api/users/' + encodeURIComponent(targetUsername) + '/follow', {
+          method: method,
+          headers: { Authorization: 'Bearer ' + token }
+        })
+          .then(function (res) {
+            if (res.status === 201 || res.status === 204 || res.status === 200) {
+              isFollowing = !isFollowing;
+              btn.textContent = isFollowing ? 'Unfollow' : 'Follow';
+              btn.classList.toggle('following', isFollowing);
+            }
+            btn.disabled = false;
+          })
+          .catch(function () { btn.disabled = false; });
+      }
+      window.doToggleFollow = doToggleFollow;
+
+      function loadProfile() {
+        var headerEl = document.getElementById('user-header');
+        var postsEl = document.getElementById('user-posts');
+
+        var headers = {};
+        if (token) headers['Authorization'] = 'Bearer ' + token;
+
+        fetch('/api/users/' + encodeURIComponent(targetUsername), { headers: headers })
+          .then(function (res) {
+            if (res.status === 404) throw new Error('User not found.');
+            return res.json();
+          })
+          .then(function (data) {
+            var user = data.user || data;
+            var displayName = user.display_name || user.username || targetUsername;
+
+            document.title = 'XClone – @' + (user.username || targetUsername);
+
+            var followBtn = '';
+            if (token) {
+              followBtn = '<button class="follow-btn" id="follow-btn" onclick="doToggleFollow(this)">Follow</button>';
+            }
+
+            headerEl.innerHTML =
+              '<div class="profile-header">' +
+                '<div>' +
+                  '<h1>@' + escapeHtml(user.username || targetUsername) + '</h1>' +
+                  (user.display_name ? '<h2>' + escapeHtml(user.display_name) + '</h2>' : '') +
+                  (user.bio ? '<p>' + escapeHtml(user.bio) + '</p>' : '') +
+                '</div>' +
+                '<div>' + followBtn + '</div>' +
+              '</div>';
+
+            if (token) {
+              checkFollowState();
+            }
+
+            return fetch('/api/users/' + encodeURIComponent(targetUsername) + '/posts', { headers: headers });
+          })
+          .then(function (res) {
+            return res.json();
+          })
+          .then(function (data) {
+            var posts = data.posts || data || [];
+            if (!posts.length) {
+              postsEl.innerHTML = '<section><p>No posts yet.</p></section>';
+              return;
+            }
+            postsEl.innerHTML = posts.map(function (p) {
+              return '<article>' +
+                '<div class="post-time">' + escapeHtml(p.created_at || '') + '</div>' +
+                '<div class="post-body">' + escapeHtml(p.body || '') + '</div>' +
+                '</article>';
+            }).join('');
+          })
+          .catch(function (err) {
+            headerEl.innerHTML = '<p class="error-msg visible">' + escapeHtml(err.message) + '</p>';
+            postsEl.innerHTML = '';
+          });
+      }
+
+      function checkFollowState() {
+        fetch('/api/users/me', { headers: { Authorization: 'Bearer ' + token } })
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            var me = data.user || data;
+            if (me.username === targetUsername) {
+              var btn = document.getElementById('follow-btn');
+              if (btn) btn.style.display = 'none';
+              return;
+            }
+            return fetch('/api/users/me/following', { headers: { Authorization: 'Bearer ' + token } })
+              .then(function (res) { return res.ok ? res.json() : null; })
+              .then(function (d) {
+                if (!d) return;
+                var following = d.following || d || [];
+                isFollowing = following.some(function (u) {
+                  return (u.username || u) === targetUsername;
+                });
+                var btn = document.getElementById('follow-btn');
+                if (btn) {
+                  btn.textContent = isFollowing ? 'Unfollow' : 'Follow';
+                  btn.classList.toggle('following', isFollowing);
+                }
+              });
+          })
+          .catch(function () {});
+      }
+
+      if (targetUsername) {
+        loadProfile();
+      } else {
+        document.getElementById('user-header').innerHTML = '<p class="error-msg visible">No username specified.</p>';
+        document.getElementById('user-posts').innerHTML = '';
+      }
+    })();
+  </script>
+</body>
+</html>

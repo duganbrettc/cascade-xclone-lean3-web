@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XClone – Timeline</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <nav id="app-nav">
+    <span class="nav-brand">XClone</span>
+    <a href="/">Home</a>
+    <a href="/post">Post</a>
+    <a href="/profile">Profile</a>
+    <a href="/users">Users</a>
+    <button id="logout-btn" onclick="doLogout()">Logout</button>
+  </nav>
+
+  <main>
+    <h1>Timeline</h1>
+    <div id="timeline-feed" class="loading">Loading your timeline…</div>
+  </main>
+
+  <script>
+    (function () {
+      const token = localStorage.getItem('token') || localStorage.getItem('session_token');
+      if (!token) {
+        window.location.replace('/login');
+        return;
+      }
+
+      function doLogout() {
+        localStorage.removeItem('token');
+        localStorage.removeItem('session_token');
+        window.location.replace('/login');
+      }
+      window.doLogout = doLogout;
+
+      function escapeHtml(str) {
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      async function loadTimeline() {
+        const feed = document.getElementById('timeline-feed');
+        try {
+          const [tlRes, meRes] = await Promise.all([
+            fetch('/api/timeline', { headers: { Authorization: 'Bearer ' + token } }),
+            fetch('/api/users/me', { headers: { Authorization: 'Bearer ' + token } })
+          ]);
+
+          if (tlRes.status === 401 || meRes.status === 401) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('session_token');
+            window.location.replace('/login');
+            return;
+          }
+
+          const [tlData, meData] = await Promise.all([tlRes.json(), meRes.json()]);
+          const posts = tlData.posts || tlData || [];
+          const user = meData.user || meData || {};
+
+          if (user.username) {
+            const brand = document.querySelector('.nav-brand');
+            if (brand) brand.textContent = '@' + user.username;
+          }
+
+          if (!posts.length) {
+            feed.innerHTML = '<section><p>No posts yet. Follow some users or <a href="/post">create a post</a>!</p></section>';
+            return;
+          }
+
+          feed.innerHTML = posts.map(function (p) {
+            return '<article>' +
+              '<div class="post-author"><a href="/users/' + escapeHtml(p.username || '') + '">@' + escapeHtml(p.username || '') + '</a></div>' +
+              '<div class="post-time">' + escapeHtml(p.created_at || '') + '</div>' +
+              '<div class="post-body">' + escapeHtml(p.body || '') + '</div>' +
+              '</article>';
+          }).join('');
+        } catch (err) {
+          feed.innerHTML = '<section><p class="error-msg visible">Failed to load timeline: ' + escapeHtml(err.message) + '</p></section>';
+        }
+      }
+
+      loadTimeline();
+    })();
+  </script>
+</body>
+</html>

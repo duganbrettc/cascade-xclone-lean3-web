@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XClone – Profile</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <nav id="app-nav">
+    <span class="nav-brand">XClone</span>
+    <a href="/">Home</a>
+    <a href="/post">Post</a>
+    <a href="/profile">Profile</a>
+    <a href="/users">Users</a>
+    <button id="logout-btn" onclick="doLogout()">Logout</button>
+  </nav>
+
+  <main>
+    <h1>Your Profile</h1>
+    <section>
+      <form id="profile-form" novalidate>
+        <div class="form-group">
+          <label for="display_name">Display Name</label>
+          <input type="text" id="display_name" name="display_name" placeholder="Your display name" />
+        </div>
+        <div class="form-group">
+          <label for="bio">Bio</label>
+          <textarea id="bio" name="bio" placeholder="Tell us about yourself…"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="password">New Password</label>
+          <input type="password" id="password" name="password" placeholder="Leave blank to keep current password" />
+        </div>
+        <div id="profile-error" class="error-msg"></div>
+        <div id="profile-success" class="success-msg"></div>
+        <button type="submit">Save Changes</button>
+      </form>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      var token = localStorage.getItem('token') || localStorage.getItem('session_token');
+      if (!token) {
+        window.location.replace('/login');
+        return;
+      }
+
+      function doLogout() {
+        localStorage.removeItem('token');
+        localStorage.removeItem('session_token');
+        window.location.replace('/login');
+      }
+      window.doLogout = doLogout;
+
+      var form = document.getElementById('profile-form');
+      var errEl = document.getElementById('profile-error');
+      var successEl = document.getElementById('profile-success');
+
+      function showError(msg) {
+        errEl.textContent = msg;
+        errEl.classList.add('visible');
+        successEl.classList.remove('visible');
+      }
+
+      function showSuccess(msg) {
+        successEl.textContent = msg;
+        successEl.classList.add('visible');
+        errEl.classList.remove('visible');
+      }
+
+      function loadProfile() {
+        fetch('/api/users/me', {
+          headers: { Authorization: 'Bearer ' + token }
+        })
+          .then(function (res) {
+            if (res.status === 401) {
+              localStorage.removeItem('token');
+              localStorage.removeItem('session_token');
+              window.location.replace('/login');
+              return null;
+            }
+            return res.json();
+          })
+          .then(function (data) {
+            if (!data) return;
+            var user = data.user || data;
+            if (user.display_name) form.elements['display_name'].value = user.display_name;
+            if (user.bio) form.elements['bio'].value = user.bio;
+          })
+          .catch(function (err) {
+            showError('Failed to load profile: ' + err.message);
+          });
+      }
+
+      function handleSubmit(e) {
+        e.preventDefault();
+        errEl.classList.remove('visible');
+        successEl.classList.remove('visible');
+
+        var payload = {};
+        var display_name = form.elements['display_name'].value.trim();
+        var bio = form.elements['bio'].value.trim();
+        var password = form.elements['password'].value;
+
+        if (display_name) payload.display_name = display_name;
+        if (bio) payload.bio = bio;
+        if (password) payload.password = password;
+
+        if (!Object.keys(payload).length) {
+          showError('No changes to save.');
+          return;
+        }
+
+        var btn = form.querySelector('button[type="submit"]');
+        btn.disabled = true;
+        btn.textContent = 'Saving…';
+
+        fetch('/api/users/me', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + token
+          },
+          body: JSON.stringify(payload)
+        })
+          .then(function (res) {
+            return res.json().then(function (data) { return { status: res.status, data: data }; });
+          })
+          .then(function (resp) {
+            if (resp.status === 200) {
+              showSuccess('Profile updated!');
+              form.elements['password'].value = '';
+            } else {
+              showError((resp.data && (resp.data.error || resp.data.message)) || 'Update failed.');
+            }
+            btn.disabled = false;
+            btn.textContent = 'Save Changes';
+          })
+          .catch(function (err) {
+            showError('Network error: ' + err.message);
+            btn.disabled = false;
+            btn.textContent = 'Save Changes';
+          });
+      }
+
+      form.addEventListener('submit', handleSubmit);
+      loadProfile();
+    })();
+  </script>
+</body>
+</html>

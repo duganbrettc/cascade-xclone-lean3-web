@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XClone – New Post</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <nav id="app-nav">
+    <span class="nav-brand">XClone</span>
+    <a href="/">Home</a>
+    <a href="/post">Post</a>
+    <a href="/profile">Profile</a>
+    <a href="/users">Users</a>
+    <button id="logout-btn" onclick="doLogout()">Logout</button>
+  </nav>
+
+  <main>
+    <h1>New Post</h1>
+    <section>
+      <form id="post-form" novalidate>
+        <div class="form-group">
+          <label for="body">What's on your mind?</label>
+          <textarea id="body" name="body" required placeholder="Share your thoughts…" maxlength="280"></textarea>
+        </div>
+        <div id="post-error" class="error-msg"></div>
+        <div id="post-success" class="success-msg"></div>
+        <button type="submit">Post</button>
+      </form>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      var token = localStorage.getItem('token') || localStorage.getItem('session_token');
+      if (!token) {
+        window.location.replace('/login');
+        return;
+      }
+
+      function doLogout() {
+        localStorage.removeItem('token');
+        localStorage.removeItem('session_token');
+        window.location.replace('/login');
+      }
+      window.doLogout = doLogout;
+
+      var form = document.getElementById('post-form');
+      var errEl = document.getElementById('post-error');
+      var successEl = document.getElementById('post-success');
+
+      function showError(msg) {
+        errEl.textContent = msg;
+        errEl.classList.add('visible');
+        successEl.classList.remove('visible');
+      }
+
+      function showSuccess(msg) {
+        successEl.textContent = msg;
+        successEl.classList.add('visible');
+        errEl.classList.remove('visible');
+      }
+
+      function handleSubmit(e) {
+        e.preventDefault();
+        errEl.classList.remove('visible');
+        successEl.classList.remove('visible');
+
+        var body = form.elements['body'].value.trim();
+        if (!body) {
+          showError('Post body cannot be empty.');
+          return;
+        }
+
+        var btn = form.querySelector('button[type="submit"]');
+        btn.disabled = true;
+        btn.textContent = 'Posting…';
+
+        fetch('/api/posts', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + token
+          },
+          body: JSON.stringify({ body: body })
+        })
+          .then(function (res) {
+            return res.json().then(function (data) { return { status: res.status, data: data }; });
+          })
+          .then(function (resp) {
+            if (resp.status === 201 || resp.status === 200) {
+              showSuccess('Post published!');
+              form.reset();
+              setTimeout(function () { window.location.replace('/'); }, 1000);
+            } else {
+              showError((resp.data && (resp.data.error || resp.data.message)) || 'Failed to post.');
+            }
+            btn.disabled = false;
+            btn.textContent = 'Post';
+          })
+          .catch(function (err) {
+            showError('Network error: ' + err.message);
+            btn.disabled = false;
+            btn.textContent = 'Post';
+          });
+      }
+
+      form.addEventListener('submit', handleSubmit);
+    })();
+  </script>
+</body>
+</html>

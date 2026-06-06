@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XClone – Users</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <nav id="app-nav">
+    <span class="nav-brand">XClone</span>
+    <a href="/">Home</a>
+    <a href="/post">Post</a>
+    <a href="/profile">Profile</a>
+    <a href="/users">Users</a>
+    <button id="logout-btn" onclick="doLogout()">Logout</button>
+  </nav>
+
+  <main>
+    <h1>Users</h1>
+    <section id="users-list">
+      <div class="loading">Loading users…</div>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      var token = localStorage.getItem('token') || localStorage.getItem('session_token');
+      if (!token) {
+        window.location.replace('/login');
+        return;
+      }
+
+      function doLogout() {
+        localStorage.removeItem('token');
+        localStorage.removeItem('session_token');
+        window.location.replace('/login');
+      }
+      window.doLogout = doLogout;
+
+      function escapeHtml(str) {
+        return String(str || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      var followState = {};
+
+      function toggleFollow(username, btn) {
+        var isFollowing = followState[username];
+        var method = isFollowing ? 'DELETE' : 'POST';
+        btn.disabled = true;
+
+        fetch('/api/users/' + encodeURIComponent(username) + '/follow', {
+          method: method,
+          headers: { Authorization: 'Bearer ' + token }
+        })
+          .then(function (res) {
+            if (res.status === 201 || res.status === 204 || res.status === 200) {
+              followState[username] = !isFollowing;
+              btn.textContent = followState[username] ? 'Unfollow' : 'Follow';
+              btn.classList.toggle('following', followState[username]);
+            }
+            btn.disabled = false;
+          })
+          .catch(function () { btn.disabled = false; });
+      }
+
+      function loadUsers() {
+        var container = document.getElementById('users-list');
+        fetch('/api/users', {
+          headers: { Authorization: 'Bearer ' + token }
+        })
+          .then(function (res) {
+            if (res.status === 401) {
+              localStorage.removeItem('token');
+              localStorage.removeItem('session_token');
+              window.location.replace('/login');
+              return null;
+            }
+            return res.json();
+          })
+          .then(function (data) {
+            if (!data) return;
+            var users = data.users || data || [];
+            if (!users.length) {
+              container.innerHTML = '<p>No users found.</p>';
+              return;
+            }
+            container.innerHTML = users.map(function (u) {
+              var uname = escapeHtml(u.username);
+              return '<div class="user-row">' +
+                '<div>' +
+                  '<a href="/users/' + uname + '">@' + uname + '</a>' +
+                  (u.display_name ? '<div class="user-meta">' + escapeHtml(u.display_name) + '</div>' : '') +
+                '</div>' +
+                '<button class="follow-btn" data-username="' + uname + '" onclick="handleFollowClick(this)">Follow</button>' +
+                '</div>';
+            }).join('');
+
+            fetchFollowState(users.map(function (u) { return u.username; }));
+          })
+          .catch(function (err) {
+            container.innerHTML = '<p class="error-msg visible">Failed to load users: ' + escapeHtml(err.message) + '</p>';
+          });
+      }
+
+      function fetchFollowState(usernames) {
+        fetch('/api/users/me', { headers: { Authorization: 'Bearer ' + token } })
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            var me = data.user || data;
+            var myUsername = me.username;
+            usernames.forEach(function (uname) {
+              if (uname === myUsername) {
+                var btn = document.querySelector('[data-username="' + CSS.escape(uname) + '"]');
+                if (btn) btn.style.display = 'none';
+              }
+            });
+          })
+          .catch(function () {});
+
+        fetch('/api/users/me/following', { headers: { Authorization: 'Bearer ' + token } })
+          .then(function (res) { return res.ok ? res.json() : null; })
+          .then(function (data) {
+            if (!data) return;
+            var following = data.following || data || [];
+            following.forEach(function (u) {
+              var uname = u.username || u;
+              followState[uname] = true;
+              var btn = document.querySelector('[data-username="' + CSS.escape(uname) + '"]');
+              if (btn) {
+                btn.textContent = 'Unfollow';
+                btn.classList.add('following');
+              }
+            });
+          })
+          .catch(function () {});
+      }
+
+      function handleFollowClick(btn) {
+        var username = btn.getAttribute('data-username');
+        toggleFollow(username, btn);
+      }
+      window.handleFollowClick = handleFollowClick;
+
+      loadUsers();
+    })();
+  </script>
+</body>
+</html>
